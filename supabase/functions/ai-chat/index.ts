@@ -123,6 +123,46 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const { messages, chatId } = body;
 
+    // Optional server-side reCAPTCHA verification
+    // If `RECAPTCHA_SECRET` is configured in function secrets, require and verify token
+    const recaptchaSecret = Deno.env.get('RECAPTCHA_SECRET') ?? '';
+    if (recaptchaSecret) {
+      const recaptchaToken = body.recaptchaToken || req.headers.get('x-recaptcha-token');
+      if (!recaptchaToken) {
+        return new Response(JSON.stringify({ error: 'recaptcha_required', message: 'reCAPTCHA token missing' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      try {
+        const params = new URLSearchParams();
+        params.append('secret', recaptchaSecret);
+        params.append('response', recaptchaToken);
+
+        const verifyRes = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+        });
+        const verifyJson = await verifyRes.json();
+
+        // For reCAPTCHA v3: consider requiring a minimum score (example 0.5)
+        if (!verifyJson.success || (typeof verifyJson.score === 'number' && verifyJson.score < 0.5)) {
+          return new Response(JSON.stringify({ error: 'recaptcha_failed', message: 'reCAPTCHA verification failed', details: verifyJson }), {
+            status: 403,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      } catch (e) {
+        console.error('reCAPTCHA verification error:', e);
+        return new Response(JSON.stringify({ error: 'recaptcha_error', message: 'reCAPTCHA verification error' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     if (!messages || !Array.isArray(messages)) {
       return new Response(JSON.stringify({ error: "Invalid request: messages array required" }), {
         status: 400,
