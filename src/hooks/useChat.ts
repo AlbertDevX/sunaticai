@@ -1,5 +1,13 @@
-import { useState, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { useState, useCallback, useEffect } from 'react';
+import { 
+  getUserChats, 
+  getChatMessages, 
+  createMessageInDB, 
+  createChatInDB, 
+  deleteChatFromDB, 
+  updateChatTitleInDB,
+  timestampToISO 
+} from '../lib/firebase';
 import { Chat, Message, AIResponse, AppView } from '../types';
 
 export function useChat(userId: string | undefined) {
@@ -9,49 +17,76 @@ export function useChat(userId: string | undefined) {
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
 
-  const loadChats = useCallback(async () => {
-    if (!userId) return;
+  // Load chats when userId changes
+  useEffect(() => {
+    if (!userId) {
+      setChats([]);
+      return;
+    }
+
     setLoading(true);
-    const { data } = await supabase
-      .from('chats')
-      .select('*')
-      .eq('user_id', userId)
-      .order('updated_at', { ascending: false });
-    setChats(data ?? []);
-    setLoading(false);
+    const unsubscribe = getUserChats(userId, (fetchedChats) => {
+      const formattedChats = fetchedChats.map(chat => ({
+        id: chat.id,
+        user_id: chat.user_id,
+        title: chat.title,
+        mode: chat.mode as 'chat' | 'ide',
+        created_at: chat.created_at ? timestampToISO(chat.created_at) : new Date().toISOString(),
+        updated_at: chat.updated_at ? timestampToISO(chat.updated_at) : new Date().toISOString(),
+      }));
+      setChats(formattedChats);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [userId]);
 
-  const loadMessages = useCallback(async (chatId: string) => {
-    const { data } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('chat_id', chatId)
-      .order('created_at', { ascending: true });
-    setMessages(data ?? []);
+  // Load messages when activeChat changes
+  const loadMessages = useCallback((chatId: string) => {
+    const unsubscribe = getChatMessages(chatId, (fetchedMessages) => {
+      const formattedMessages = fetchedMessages.map(msg => ({
+        id: msg.id,
+        chat_id: msg.chat_id,
+        role: msg.role as 'user' | 'assistant' | 'system',
+        content: msg.content,
+        is_restricted: msg.is_restricted ?? false,
+        metadata: msg.metadata ?? {},
+        created_at: msg.created_at ? timestampToISO(msg.created_at) : new Date().toISOString(),
+      }));
+      setMessages(formattedMessages);
+    });
+
+    return unsubscribe;
   }, []);
 
   const createChat = useCallback(async (mode: AppView = 'chat', title = 'New Chat') => {
     if (!userId) return null;
-    const { data } = await supabase
-      .from('chats')
-      .insert({ user_id: userId, title, mode })
-      .select()
-      .single();
-    if (data) {
-      setChats(prev => [data, ...prev]);
-      setActiveChat(data);
-      setMessages([]);
-    }
-    return data;
+    
+    const { id, error } = await createChatInDB(userId, title, mode);
+    if (error || !id) return null;
+
+    const newChat: Chat = {
+      id,
+      user_id: userId,
+      title,
+      mode,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    
+    setChats(prev => [newChat, ...prev]);
+    setActiveChat(newChat);
+    setMessages([]);
+    return newChat;
   }, [userId]);
 
   const selectChat = useCallback(async (chat: Chat) => {
     setActiveChat(chat);
-    await loadMessages(chat.id);
+    loadMessages(chat.id);
   }, [loadMessages]);
 
   const deleteChat = useCallback(async (chatId: string) => {
-    await supabase.from('chats').delete().eq('id', chatId);
+    await deleteChatFromDB(chatId);
     setChats(prev => prev.filter(c => c.id !== chatId));
     if (activeChat?.id === chatId) {
       setActiveChat(null);
@@ -60,11 +95,8 @@ export function useChat(userId: string | undefined) {
   }, [activeChat]);
 
   const updateChatTitle = useCallback(async (chatId: string, title: string) => {
-    await supabase
-      .from('chats')
-      .update({ title, updated_at: new Date().toISOString() })
-      .eq('id', chatId);
-    setChats(prev => prev.map(c => c.id === chatId ? { ...c, title } : c));
+    await updateChatTitleInDB(chatId, title);
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, title, updated_at: new Date().toISOString() } : c));
   }, []);
 
   const sendMessage = useCallback(async (
@@ -73,7 +105,6 @@ export function useChat(userId: string | undefined) {
     sessionToken: string | null
   ): Promise<AIResponse> => {
     if (!userId || !content.trim()) return { error: 'Invalid request' };
-    if (!sessionToken) return { error: 'No active session' };
 
     setSending(true);
     try {
@@ -84,42 +115,48 @@ export function useChat(userId: string | undefined) {
         if (!chat) return { error: 'Failed to create chat' };
       }
 
-      const userMsg: Omit<Message, 'id' | 'created_at'> = {
+      // Save user message
+      const { id: msgId, error: msgError } = await createMessageInDB(
+        chat.id,
+        'user',
+        content,
+        false,
+        {}
+      );
+
+      if (msgError || !msgId) {
+        return { error: 'Failed to save message' };
+      }
+
+      const savedMsg: Message = {
+        id: msgId,
         chat_id: chat.id,
         role: 'user',
         content,
         is_restricted: false,
         metadata: {},
+        created_at: new Date().toISOString(),
       };
+      setMessages(prev => [...prev, savedMsg]);
 
-      const { data: savedMsg } = await supabase
-        .from('messages')
-        .insert(userMsg)
-        .select()
-        .single();
-
-      if (savedMsg) {
-        setMessages(prev => [...prev, savedMsg]);
-      }
-
-      const historyMessages = [...messages, savedMsg ?? { ...userMsg, id: '', created_at: '' }]
+      // Call AI endpoint (you'll need to implement this with your own backend)
+      const historyMsgs = [...messages, savedMsg]
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role, content: m.content }));
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${sessionToken}`,
-          },
-          body: JSON.stringify({
-            messages: historyMessages,
-            chatId: chat.id,
-          }),
-        }
-      );
+      // Note: You need to replace this with your actual AI backend URL
+      const aiEndpoint = import.meta.env.VITE_AI_ENDPOINT || 'http://localhost:3000/api/ai-chat';
+      
+      const response = await fetch(aiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: historyMsgs,
+          chatId: chat.id,
+        }),
+      });
 
       if (!response.ok && response.status !== 403) {
         return { error: 'AI service error' };
@@ -128,37 +165,31 @@ export function useChat(userId: string | undefined) {
       const aiData: AIResponse = await response.json();
 
       if (aiData.content) {
-        const { data: aiMsg } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('chat_id', chat.id)
-          .eq('role', 'assistant')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        // Save AI response
+        const { id: aiMsgId } = await createMessageInDB(
+          chat.id,
+          'assistant',
+          aiData.content,
+          aiData.restricted ?? false,
+          {}
+        );
 
-        if (aiMsg) {
-          setMessages(prev => [...prev, aiMsg]);
-        } else {
-          const tempMsg: Message = {
-            id: crypto.randomUUID(),
+        if (aiMsgId) {
+          const aiMsg: Message = {
+            id: aiMsgId,
             chat_id: chat.id,
             role: 'assistant',
             content: aiData.content ?? '',
-            is_restricted: false,
+            is_restricted: aiData.restricted ?? false,
             metadata: {},
             created_at: new Date().toISOString(),
           };
-          setMessages(prev => [...prev, tempMsg]);
+          setMessages(prev => [...prev, aiMsg]);
         }
 
+        // Update chat title if it's the first message
         if (messages.length === 0) {
           await updateChatTitle(chat.id, content.slice(0, 60));
-          setChats(prev => prev.map(c =>
-            c.id === chat!.id
-              ? { ...c, title: content.slice(0, 60), updated_at: new Date().toISOString() }
-              : c
-          ));
         }
       }
 
@@ -174,7 +205,7 @@ export function useChat(userId: string | undefined) {
     messages,
     loading,
     sending,
-    loadChats,
+    loadChats: () => {}, // No longer needed with real-time listener
     createChat,
     selectChat,
     deleteChat,
