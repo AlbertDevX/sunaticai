@@ -1,15 +1,55 @@
 ```
+# Build artifacts
+dist/
+build/
+*.js
+*.css
+*.svg
+
 # Dependencies
 node_modules/
+package-lock.json
 
-# Environment variables
+# Environment
 .env
 .env.local
 .env.*
 
-# Compressed files
-*.zip
-
-# Logs
+# Logs and temp files
 *.log
+*.tmp
+
+# Editors
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Compression
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 ```

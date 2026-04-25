@@ -8,9 +8,9 @@ import {
   updateChatTitleInDB,
   timestampToISO 
 } from '../lib/firebase';
-import { Chat, Message, AIResponse, AppView } from '../types';
+import { Chat, Message, AIResponse, AppView, UserProfile } from '../types';
 
-export function useChat(userId: string | undefined) {
+export function useChat(userId: string | undefined, profile?: UserProfile) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChat, setActiveChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -139,12 +139,11 @@ export function useChat(userId: string | undefined) {
       };
       setMessages(prev => [...prev, savedMsg]);
 
-      // Call AI endpoint (you'll need to implement this with your own backend)
+      // Call AI endpoint with age verification
       const historyMsgs = [...messages, savedMsg]
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role, content: m.content }));
 
-      // Note: You need to replace this with your actual AI backend URL
       const aiEndpoint = import.meta.env.VITE_AI_ENDPOINT || 'http://localhost:3000/api/ai-chat';
       
       const response = await fetch(aiEndpoint, {
@@ -155,6 +154,7 @@ export function useChat(userId: string | undefined) {
         body: JSON.stringify({
           messages: historyMsgs,
           chatId: chat.id,
+          userAgeVerified: profile?.age_verified ?? false,
         }),
       });
 
@@ -197,7 +197,7 @@ export function useChat(userId: string | undefined) {
     } finally {
       setSending(false);
     }
-  }, [userId, activeChat, messages, createChat, updateChatTitle]);
+  }, [userId, activeChat, messages, createChat, updateChatTitle, profile]);
 
   return {
     chats,
