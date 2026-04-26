@@ -14,7 +14,7 @@ export default function App() {
     chats, activeChat, messages, loading: chatsLoading, sending,
     loadChats, createChat, selectChat, deleteChat, sendMessage,
     setActiveChat, setMessages,
-  } = useChat(user?.uid);
+  } = useChat(user?.uid, profile);
 
   const [activeView, setActiveView] = useState<AppView>('chat');
   const [restrictionError, setRestrictionError] = useState<string | null>(null);
@@ -50,7 +50,11 @@ export default function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ messages: historyMsgs, chatId: chat.id }),
+        body: JSON.stringify({ 
+          messages: historyMsgs, 
+          chatId: chat.id,
+          userAgeVerified: profile?.age_verified ?? false
+        }),
       });
       if (!response.ok) return null;
       const data = await response.json();
@@ -62,7 +66,7 @@ export default function App() {
     } catch {
       return null;
     }
-  }, [activeChat, createChat]);
+  }, [activeChat, createChat, profile]);
 
   if (loading) {
     return (
