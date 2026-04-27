@@ -1,8 +1,15 @@
 import { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
-import { onAuthChange, getUserProfile, createUserProfile, updateUserProfileInDB, signInWithGoogle as firebaseSignInWithGoogle, logOut } from '../lib/firebase';
+import { 
+  onAuthChange, 
+  getUserProfile, 
+  createUserProfile, 
+  updateUserProfileInDB, 
+  signInWithGoogle as firebaseSignInWithGoogle, 
+  logOut,
+  timestampToISO 
+} from '../lib/firebase';
 import { UserProfile } from '../types';
-import { timestampToISO } from '../lib/firebase';
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -24,69 +31,107 @@ export function useAuth() {
     return () => unsubscribe();
   }, []);
 
-  const extractBirthYear = (metadata: Record<string, unknown> | null): number | null => {
-    if (!metadata) return null;
-    // Firebase no tiene birthday por defecto, pero podemos verificar si existe
-    if ((metadata as any).birthday && typeof (metadata as any).birthday === 'string') {
-      const year = parseInt((metadata as any).birthday.split('-')[0]);
-      if (!isNaN(year) && year > 1900) return year;
-    }
-    return null;
-  };
-
   const fetchOrCreateProfile = async (firebaseUser: User) => {
     try {
       const { data, error } = await getUserProfile(firebaseUser.uid);
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'unavailable' || error.message.includes('offline')) {
+          console.warn("CodeSec Auth: Trabajando en modo offline. Usando datos de sesión local.");
+          generateFallbackProfile(firebaseUser);
+          return;
+        }
+        throw error;
+      }
 
       if (!data) {
-        const newProfile: Partial<UserProfile> = {
+        const newProfile: UserProfile = {
           id: firebaseUser.uid,
-          email: firebaseUser.email ?? null,
-          display_name: firebaseUser.displayName ?? null,
-          avatar_url: firebaseUser.photoURL ?? null,
+          email: firebaseUser.email,
+          display_name: firebaseUser.displayName,
+          avatar_url: firebaseUser.photoURL,
           age_verified: false,
           birth_year: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
-        await createUserProfile(firebaseUser.uid, newProfile as any);
-        setProfile(newProfile as UserProfile);
+
+        await createUserProfile(firebaseUser.uid, newProfile);
+        setProfile(newProfile);
       } else {
-        const profileData = data as any;
         setProfile({
           id: firebaseUser.uid,
-          email: profileData.email ?? firebaseUser.email,
-          display_name: profileData.display_name ?? firebaseUser.displayName,
-          avatar_url: profileData.avatar_url ?? firebaseUser.photoURL,
-          age_verified: profileData.age_verified ?? false,
-          birth_year: profileData.birth_year ?? null,
-          created_at: profileData.created_at ? timestampToISO(profileData.created_at) : new Date().toISOString(),
-          updated_at: profileData.updated_at ? timestampToISO(profileData.updated_at) : new Date().toISOString(),
+          email: data.email ?? firebaseUser.email,
+          display_name: data.display_name ?? firebaseUser.displayName,
+          avatar_url: data.avatar_url ?? firebaseUser.photoURL,
+          age_verified: data.age_verified ?? false,
+          birth_year: data.birth_year ?? null,
+          created_at: data.created_at ? timestampToISO(data.created_at) : new Date().toISOString(),
+          updated_at: data.updated_at ? timestampToISO(data.updated_at) : new Date().toISOString(),
         });
       }
     } catch (err) {
-      console.error('Error fetching/creating profile:', err);
+      console.error('Error crítico en fetchOrCreateProfile:', err);
+      generateFallbackProfile(firebaseUser);
     } finally {
       setLoading(false);
     }
   };
 
+  const generateFallbackProfile = (firebaseUser: User) => {
+    setProfile({
+      id: firebaseUser.uid,
+      email: firebaseUser.email,
+      display_name: firebaseUser.displayName,
+      avatar_url: firebaseUser.photoURL,
+      age_verified: false, 
+      birth_year: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  };
+
   async function signInWithGoogle() {
-    const { user: firebaseUser, error } = await firebaseSignInWithGoogle();
-    return { error };
+    try {
+      const { user: firebaseUser, error } = await firebaseSignInWithGoogle();
+      if (error) return { error };
+      return { user: firebaseUser };
+    } catch (err) {
+      return { error: err };
+    }
   }
 
   async function signOut() {
-    await logOut();
+    try {
+      await logOut();
+      setUser(null);
+      setProfile(null);
+    } catch (err) {
+      console.error("Error al cerrar sesión:", err);
+    }
   }
 
   async function verifyAge() {
     if (!user) return;
-    await updateUserProfileInDB(user.uid, { age_verified: true });
-    setProfile(prev => prev ? { ...prev, age_verified: true } : null);
+    try {
+      await updateUserProfileInDB(user.uid, { 
+        age_verified: true,
+        updated_at: new Date().toISOString() 
+      });
+      setProfile(prev => prev ? { ...prev, age_verified: true } : null);
+    } catch (err) {
+      console.error("No se pudo verificar la edad en la DB (¿Offline?):", err);
+      // Actualizamos localmente para no bloquear la sesión actual
+      setProfile(prev => prev ? { ...prev, age_verified: true } : null);
+    }
   }
 
-  return { user, session: null, profile, loading, signInWithGoogle, signOut, verifyAge };
+  return { 
+    user, 
+    profile, 
+    loading, 
+    signInWithGoogle, 
+    signOut, 
+    verifyAge 
+  };
 }
