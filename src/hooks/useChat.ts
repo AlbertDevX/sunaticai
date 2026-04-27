@@ -9,6 +9,8 @@ import {
   timestampToISO 
 } from '../lib/firebase';
 import { Chat, Message, AIResponse, AppView, UserProfile } from '../types';
+import { callAI, getAvailableModels } from '../lib/ai';
+import { saveConversation, addTrainingData } from '../lib/sqlite';
 
 export function useChat(userId: string | undefined, profile?: UserProfile) {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -16,6 +18,10 @@ export function useChat(userId: string | undefined, profile?: UserProfile) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>(
+    import.meta.env.VITE_DEFAULT_MODEL || 'gemini-1.5-pro'
+  );
+  const availableModels = getAvailableModels();
 
   // Load chats when userId changes
   useEffect(() => {
@@ -102,7 +108,7 @@ export function useChat(userId: string | undefined, profile?: UserProfile) {
   const sendMessage = useCallback(async (
     content: string,
     mode: AppView = 'chat',
-    sessionToken: string | null
+    _sessionToken: string | null
   ): Promise<AIResponse> => {
     if (!userId || !content.trim()) return { error: 'Invalid request' };
 
@@ -139,39 +145,26 @@ export function useChat(userId: string | undefined, profile?: UserProfile) {
       };
       setMessages(prev => [...prev, savedMsg]);
 
-      // Call AI endpoint with age verification
+      // Call AI endpoint with age verification - DIRECT FRONTEND CALL
       const historyMsgs = [...messages, savedMsg]
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role, content: m.content }));
 
-      const aiEndpoint = import.meta.env.VITE_AI_ENDPOINT || 'http://localhost:3000/api/ai-chat';
-      
-      const response = await fetch(aiEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: historyMsgs,
-          chatId: chat.id,
-          userAgeVerified: profile?.age_verified ?? false,
-        }),
-      });
+      // Direct call to AI provider from frontend (no backend needed)
+      const aiData = await callAI(historyMsgs, selectedModel, profile?.age_verified ?? false);
 
-      if (!response.ok && response.status !== 403) {
-        return { error: 'AI service error' };
+      if (aiData.error) {
+        return aiData;
       }
 
-      const aiData: AIResponse = await response.json();
-
       if (aiData.content) {
-        // Save AI response
+        // Save AI response to Firebase
         const { id: aiMsgId } = await createMessageInDB(
           chat.id,
           'assistant',
           aiData.content,
           aiData.restricted ?? false,
-          {}
+          { model: aiData.model, usage: aiData.usage }
         );
 
         if (aiMsgId) {
@@ -181,10 +174,35 @@ export function useChat(userId: string | undefined, profile?: UserProfile) {
             role: 'assistant',
             content: aiData.content ?? '',
             is_restricted: aiData.restricted ?? false,
-            metadata: {},
+            metadata: { model: aiData.model, usage: aiData.usage },
             created_at: new Date().toISOString(),
           };
           setMessages(prev => [...prev, aiMsg]);
+        }
+
+        // Save conversation to SQLite for training
+        const allMessages = [...messages, savedMsg, ...(aiMsgId ? [{
+          id: aiMsgId,
+          chat_id: chat.id,
+          role: 'assistant' as const,
+          content: aiData.content ?? '',
+          is_restricted: false,
+          metadata: {},
+          created_at: new Date().toISOString(),
+        }] : [])];
+        
+        const trainingMessages = allMessages.map(m => ({ role: m.role, content: m.content }));
+        await saveConversation(chat.id, trainingMessages, selectedModel);
+
+        // Auto-train: Add high-quality responses to training data
+        if (!aiData.restricted && aiData.content.length > 50) {
+          await addTrainingData(
+            content,
+            aiData.content,
+            selectedModel,
+            'chat_response',
+            5 // Default high quality for non-restricted responses
+          );
         }
 
         // Update chat title if it's the first message
@@ -197,7 +215,7 @@ export function useChat(userId: string | undefined, profile?: UserProfile) {
     } finally {
       setSending(false);
     }
-  }, [userId, activeChat, messages, createChat, updateChatTitle, profile]);
+  }, [userId, activeChat, messages, createChat, updateChatTitle, profile, selectedModel]);
 
   return {
     chats,
@@ -205,6 +223,9 @@ export function useChat(userId: string | undefined, profile?: UserProfile) {
     messages,
     loading,
     sending,
+    selectedModel,
+    setSelectedModel,
+    availableModels,
     loadChats: () => {}, // No longer needed with real-time listener
     createChat,
     selectChat,

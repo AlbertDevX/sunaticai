@@ -1,55 +1,99 @@
 ```
-# Build artifacts
-dist/
-build/
-*.js
-*.css
-*.svg
-
 # Dependencies
 node_modules/
-package-lock.json
 
 # Environment
 .env
 .env.local
 .env.*
 
-# Logs and temp files
+# Logs
 *.log
-*.tmp
 
-# Editors
-.vscode/
-.idea/
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Build artifacts
+dist/
+build/
+target/
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.Python
+env/
+venv/
+.venv/
+.venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/
+.mypy_cache/
+.pytest_cache/
+.hypothesis/
 
-# Compression
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
+# Node.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+node_modules/
+jspm_packages/
+web_modules/
+lib-cov/
+coverage/
+.nyc_output/
+.grunt
+bower_components/
+.sass-cache
+connect.lock
+.urlnr-chromeextension
+jspm_packages/
+typings/
+.npm
+.node_repl_history
+.lock-wscript
+.yarn-integrity
+.yarn-metadata.json
+node_modules/
+jspm_packages/
+.nyc_output/
+istanbul.yml
+.last_run.json
+.nodemonignore
+.travis.yml
+.circleci/
+.nyc_output/
+.repl_history
+.vscode/settings.json
+
+# TypeScript
+*.tsbuildinfo
+*.eslintrc.js
+
+# Database
+*.db
+*.db-journal
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Icon?
 ```
