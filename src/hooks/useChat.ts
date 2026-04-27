@@ -12,6 +12,10 @@ import { Chat, Message, AIResponse, AppView, UserProfile } from '../types';
 import { callAI, getAvailableModels } from '../lib/ai';
 import { saveConversation, addTrainingData } from '../lib/sqlite';
 
+import { initializeFirestore, enableIndexedDbPersistence } from "firebase/firestore";
+
+const db = initializeFirestore(app, { localCache: persistentLocalCache() });
+
 export function useChat(userId: string | undefined, profile?: UserProfile) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChat, setActiveChat] = useState<Chat | null>(null);
