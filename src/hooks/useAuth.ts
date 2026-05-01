@@ -8,6 +8,7 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [offlineMode, setOfflineMode] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthChange(async (firebaseUser) => {
@@ -21,7 +22,18 @@ export function useAuth() {
       }
     });
 
-    return () => unsubscribe();
+    // Listen for online/offline status
+    const handleOnline = () => setOfflineMode(false);
+    const handleOffline = () => setOfflineMode(true);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      unsubscribe();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   const extractBirthYear = (metadata: Record<string, unknown> | null): number | null => {
@@ -38,7 +50,9 @@ export function useAuth() {
     try {
       const { data, error } = await getUserProfile(firebaseUser.uid);
 
-      if (error) throw error;
+      if (error && !(error as any)?.message?.includes('offline')) {
+        throw error;
+      }
 
       if (!data) {
         const newProfile: Partial<UserProfile> = {
@@ -68,6 +82,19 @@ export function useAuth() {
       }
     } catch (err) {
       console.error('Error fetching/creating profile:', err);
+      // Create a minimal profile from Firebase Auth data even if Firestore fails
+      if (firebaseUser) {
+        setProfile({
+          id: firebaseUser.uid,
+          email: firebaseUser.email ?? null,
+          display_name: firebaseUser.displayName ?? null,
+          avatar_url: firebaseUser.photoURL ?? null,
+          age_verified: false,
+          birth_year: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -88,5 +115,14 @@ export function useAuth() {
     setProfile(prev => prev ? { ...prev, age_verified: true } : null);
   }
 
-  return { user, session: null, profile, loading, signInWithGoogle, signOut, verifyAge };
+  return { 
+    user, 
+    session: null, 
+    profile, 
+    loading, 
+    offlineMode,
+    signInWithGoogle, 
+    signOut, 
+    verifyAge 
+  };
 }

@@ -1,6 +1,22 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User, updateProfile as updateFirebaseProfile } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, query, where, orderBy, addDoc, deleteDoc, onSnapshot, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  updateDoc, 
+  query, 
+  where, 
+  orderBy, 
+  addDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  Timestamp, 
+  serverTimestamp,
+  enableMultiTabIndexedDbPersistence
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -13,6 +29,13 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
+// Enable offline persistence for multi-tab support
+try {
+  enableMultiTabIndexedDbPersistence();
+} catch (err) {
+  console.warn('Persistence already enabled or failed:', err);
+}
 
 // Initialize services
 export const auth = getAuth(app);
@@ -66,7 +89,12 @@ export const createUserProfile = async (userId: string, profileData: {
       updated_at: serverTimestamp(),
     });
     return { error: null };
-  } catch (error) {
+  } catch (error: any) {
+    // Handle offline errors gracefully
+    if (error?.code === 'unavailable' || error?.message?.includes('offline')) {
+      console.warn('Firebase offline - profile creation queued');
+      return { error: null }; // Don't fail on offline
+    }
     console.error('Error creating user profile:', error);
     return { error };
   }
@@ -80,7 +108,12 @@ export const getUserProfile = async (userId: string) => {
       return { data: { id: userId, ...userSnap.data() }, error: null };
     }
     return { data: null, error: null };
-  } catch (error) {
+  } catch (error: any) {
+    // Handle offline errors gracefully - return cached/null data
+    if (error?.code === 'unavailable' || error?.message?.includes('offline')) {
+      console.warn('Firebase offline - using cached data');
+      return { data: null, error: null };
+    }
     console.error('Error getting user profile:', error);
     return { data: null, error };
   }

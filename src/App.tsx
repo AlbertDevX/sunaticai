@@ -9,7 +9,7 @@ import { Header } from './components/layout/Header';
 import { AppView } from './types';
 
 export default function App() {
-  const { user, session, profile, loading, signInWithGoogle, signOut } = useAuth();
+  const { user, session, profile, loading, signInWithGoogle, signOut, offlineMode } = useAuth();
   const {
     chats, activeChat, messages, loading: chatsLoading, sending,
     loadChats, createChat, selectChat, deleteChat, sendMessage,
@@ -90,6 +90,7 @@ export default function App() {
         activeView={activeView}
         onViewChange={handleViewChange}
         onSignOut={signOut}
+        offlineMode={offlineMode}
       />
 
       <div className="flex-1 flex overflow-hidden">
