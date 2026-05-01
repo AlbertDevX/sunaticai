@@ -1,4 +1,4 @@
-import { Shield, LogOut, MessageSquare, Code2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Shield, LogOut, MessageSquare, Code2, CheckCircle, AlertCircle, WifiOff } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { AppView } from '../../types';
 
@@ -7,9 +7,10 @@ interface HeaderProps {
   activeView: AppView;
   onViewChange: (view: AppView) => void;
   onSignOut: () => void;
+  offlineMode?: boolean;
 }
 
-export function Header({ profile, activeView, onViewChange, onSignOut }: HeaderProps) {
+export function Header({ profile, activeView, onViewChange, onSignOut, offlineMode = false }: HeaderProps) {
   return (
     <header className="flex items-center gap-3 px-4 py-2.5 bg-[#080810] border-b border-[#1a1a28] shrink-0">
       <nav className="flex items-center gap-1 bg-[#0d0d1a] border border-[#1e1e2e] rounded-xl p-1">
@@ -38,17 +39,24 @@ export function Header({ profile, activeView, onViewChange, onSignOut }: HeaderP
       </nav>
 
       <div className="ml-auto flex items-center gap-3">
+        {offlineMode && (
+          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+            <WifiOff className="w-3 h-3 text-amber-400" />
+            <span className="text-[11px] text-amber-400 font-mono">Sin conexion</span>
+          </div>
+        )}
+        
         {profile?.age_verified ? (
           <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
             <CheckCircle className="w-3 h-3 text-emerald-400" />
             <span className="text-[11px] text-emerald-400 font-mono">18+ verificado</span>
           </div>
-        ) : (
+        ) : !offlineMode ? (
           <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 rounded-lg">
             <AlertCircle className="w-3 h-3 text-amber-400" />
             <span className="text-[11px] text-amber-400 font-mono">Sin verificar</span>
           </div>
-        )}
+        ) : null}
 
         <div className="flex items-center gap-2.5">
           {profile?.avatar_url ? (

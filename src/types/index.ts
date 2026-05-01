@@ -34,6 +34,12 @@ export interface AIResponse {
   message?: string;
   restricted?: boolean;
   ageVerified?: boolean;
+  model?: string;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 export type AppView = 'chat' | 'ide';

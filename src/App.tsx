@@ -9,12 +9,12 @@ import { Header } from './components/layout/Header';
 import { AppView } from './types';
 
 export default function App() {
-  const { user, session, profile, loading, signInWithGoogle, signOut } = useAuth();
+  const { user, session, profile, loading, signInWithGoogle, signOut, offlineMode } = useAuth();
   const {
     chats, activeChat, messages, loading: chatsLoading, sending,
     loadChats, createChat, selectChat, deleteChat, sendMessage,
     setActiveChat, setMessages,
-  } = useChat(user?.id);
+  } = useChat(user?.uid, profile);
 
   const [activeView, setActiveView] = useState<AppView>('chat');
   const [restrictionError, setRestrictionError] = useState<string | null>(null);
@@ -28,17 +28,13 @@ export default function App() {
   }
 
   async function handleSend(content: string) {
-    const token = session?.access_token ?? null;
-    const result = await sendMessage(content, activeView, token);
+    const result = await sendMessage(content, activeView, null);
     if (result?.error === 'age_restricted' && result.message) {
       setRestrictionError(result.message);
     }
   }
 
   const handleSendAI = useCallback(async (content: string): Promise<string | null> => {
-    const token = session?.access_token;
-    if (!token) return null;
-
     let chat = activeChat;
     if (!chat) {
       chat = await createChat('ide', content.slice(0, 50));
@@ -48,17 +44,18 @@ export default function App() {
     const historyMsgs = [{ role: 'user', content }];
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ messages: historyMsgs, chatId: chat.id }),
-        }
-      );
+      const aiEndpoint = import.meta.env.VITE_AI_ENDPOINT || 'http://localhost:3000/api/ai-chat';
+      const response = await fetch(aiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          messages: historyMsgs, 
+          chatId: chat.id,
+          userAgeVerified: profile?.age_verified ?? false
+        }),
+      });
       if (!response.ok) return null;
       const data = await response.json();
       if (data?.error === 'age_restricted') {
@@ -69,7 +66,7 @@ export default function App() {
     } catch {
       return null;
     }
-  }, [activeChat, createChat, session]);
+  }, [activeChat, createChat, profile]);
 
   if (loading) {
     return (
@@ -93,6 +90,7 @@ export default function App() {
         activeView={activeView}
         onViewChange={handleViewChange}
         onSignOut={signOut}
+        offlineMode={offlineMode}
       />
 
       <div className="flex-1 flex overflow-hidden">
